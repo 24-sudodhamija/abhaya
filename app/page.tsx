@@ -1,13 +1,57 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import Navbar from '@/components/navigation/Navbar';
 import { calculateSafetyScore } from '@/lib/safety/engine';
-import { Navigation, ShieldAlert, MapPin, Bot, ArrowRight, ShieldCheck, HeartPulse, Sparkles } from 'lucide-react';
+import { Navigation, ShieldAlert, MapPin, Bot, ArrowRight, ShieldCheck, HeartPulse, Sparkles, LogOut, CheckCircle2 } from 'lucide-react';
 
 export default function Home() {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [user, setUser] = useState<any>(null);
   const safetyData = useMemo(() => calculateSafetyScore(1, new Date().getHours(), 3), []);
+
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem('abhaya_user');
+      if (!storedUser) {
+        router.push('/login');
+        return;
+      }
+      const parsed = JSON.parse(storedUser);
+      if (!parsed || parsed.is_verified !== true) {
+        router.push('/login');
+      } else {
+        setUser(parsed);
+        setIsAuthenticated(true);
+      }
+    } catch {
+      router.push('/login');
+    }
+  }, [router]);
+
+  const handleSignOut = () => {
+    localStorage.removeItem('abhaya_user');
+    sessionStorage.removeItem('abhaya_session_active');
+    router.push('/login');
+  };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#0a0104] text-pink-50 flex flex-col items-center justify-center p-4 font-sans antialiased">
+        <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-pink-600 to-rose-500 flex items-center justify-center font-bold text-white text-3xl shadow-2xl shadow-pink-500/40 animate-pulse">
+            A
+          </div>
+          <div className="flex items-center gap-2 text-pink-400 text-xs font-semibold tracking-wider uppercase">
+            <ShieldCheck className="w-4 h-4 animate-spin" /> Shield Engine Verifying Access...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0F070C] text-pink-50 flex flex-col md:flex-row font-sans antialiased">
@@ -20,12 +64,30 @@ export default function Home() {
             <span className="text-xs font-semibold uppercase tracking-wider text-pink-400 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> Abhaya Community Protection
             </span>
-            <h1 className="text-2xl md:text-3xl font-extrabold text-white mt-1">Welcome to Abhaya</h1>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-white mt-1">
+              Welcome to Abhaya{user?.fullName || user?.full_name ? `, ${(user.fullName || user.full_name).split(' ')[0]}` : ''}
+            </h1>
             <p className="text-pink-200/70 text-sm mt-1">Your intelligent, proactive safety companion.</p>
           </div>
-          <div className="flex items-center gap-2 bg-pink-500/10 border border-pink-500/30 text-pink-300 px-4 py-2 rounded-full text-xs font-semibold shadow-sm">
-            <ShieldCheck className="w-4 h-4 text-pink-400" />
-            Shield Engine Active
+          <div className="flex flex-wrap items-center gap-2.5">
+            {user?.is_verified && (
+              <div className="flex items-center gap-1.5 bg-emerald-950/50 border border-emerald-800/40 text-emerald-300 px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Verified Resident {user.maskedId || user.masked_id ? `(${user.maskedId || user.masked_id})` : ''}</span>
+              </div>
+            )}
+            <div className="flex items-center gap-2 bg-pink-500/10 border border-pink-500/30 text-pink-300 px-4 py-2 rounded-full text-xs font-semibold shadow-sm">
+              <ShieldCheck className="w-4 h-4 text-pink-400" />
+              Shield Engine Active
+            </div>
+            <button
+              onClick={handleSignOut}
+              className="flex items-center gap-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 rounded-xl px-4 py-2 text-sm transition-colors border border-rose-900/40 shadow-sm"
+              title="Sign Out"
+            >
+              <LogOut className="w-4 h-4" />
+              <span>Sign Out</span>
+            </button>
           </div>
         </header>
 

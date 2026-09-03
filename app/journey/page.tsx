@@ -1,15 +1,36 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import Navbar from '@/components/navigation/Navbar';
 import { Navigation, AlertTriangle, ShieldCheck, MapPin, Clock, Phone, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 export default function JourneyPage() {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [journeyState, setJourneyState] = useState<'idle' | 'active' | 'warning' | 'sos'>('idle');
   const [destination, setDestination] = useState('Connaught Place Gate 2');
   const [eta, setEta] = useState(18);
   const [progress, setProgress] = useState(0);
   const [deviationAlert, setDeviationAlert] = useState(false);
+
+  useEffect(() => {
+    try {
+      const storedUser = localStorage.getItem('abhaya_user');
+      if (!storedUser) {
+        router.push('/login');
+        return;
+      }
+      const parsed = JSON.parse(storedUser);
+      if (!parsed || parsed.is_verified !== true) {
+        router.push('/login');
+      } else {
+        setIsAuthenticated(true);
+      }
+    } catch {
+      router.push('/login');
+    }
+  }, [router]);
 
   // Simulated Journey Progress & Deviation Timer
   useEffect(() => {
@@ -42,6 +63,21 @@ export default function JourneyPage() {
     setDeviationAlert(false);
     setJourneyState('active');
   };
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#0a0104] text-pink-50 flex flex-col items-center justify-center p-4 font-sans antialiased">
+        <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
+          <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-pink-600 to-rose-500 flex items-center justify-center font-bold text-white text-3xl shadow-2xl shadow-pink-500/40 animate-pulse">
+            A
+          </div>
+          <div className="flex items-center gap-2 text-pink-400 text-xs font-semibold tracking-wider uppercase">
+            <ShieldCheck className="w-4 h-4 animate-spin" /> Shield Engine Verifying...
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#070A0F] text-slate-100 flex flex-col md:flex-row font-sans antialiased">

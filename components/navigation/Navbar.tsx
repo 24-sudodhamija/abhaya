@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { Home, Map, Navigation, AlertTriangle, ShieldAlert, Bot, Heart } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { Home, Map, Navigation, AlertTriangle, ShieldAlert, Bot, Heart, LogOut } from 'lucide-react';
 
 const navItems = [
   { name: 'Home', href: '/', icon: Home },
@@ -14,6 +14,13 @@ const navItems = [
 
 export default function Navbar() {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleSignOut = () => {
+    localStorage.removeItem('abhaya_user');
+    sessionStorage.removeItem('abhaya_session_active');
+    router.push('/login');
+  };
 
   return (
     <>
@@ -54,13 +61,23 @@ export default function Navbar() {
           </nav>
         </div>
 
-        <Link
-          href="/emergency"
-          className="flex items-center justify-center gap-2 w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold rounded-2xl shadow-lg shadow-red-600/30 transition-all duration-200 active:scale-95"
-        >
-          <ShieldAlert className="w-5 h-5" />
-          EMERGENCY SOS
-        </Link>
+        <div className="space-y-2">
+          <Link
+            href="/emergency"
+            className="flex items-center justify-center gap-2 w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 text-white font-bold rounded-2xl shadow-lg shadow-red-600/30 transition-all duration-200 active:scale-95"
+          >
+            <ShieldAlert className="w-5 h-5" />
+            EMERGENCY SOS
+          </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="flex items-center justify-center gap-2 w-full text-rose-400 hover:text-rose-300 hover:bg-rose-950/30 rounded-xl px-4 py-2 text-sm transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Sign Out</span>
+          </button>
+        </div>
       </aside>
 
       {/* Mobile Floating Bar */}
