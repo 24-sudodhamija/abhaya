@@ -98,3 +98,4 @@ CREATE INDEX IF NOT EXISTS idx_pings_journey_time ON location_pings(journey_id, 
 CREATE INDEX IF NOT EXISTS idx_pings_user_time ON location_pings(user_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incidents_active ON incidents(status) WHERE status = 'ACTIVE';
 CREATE INDEX IF NOT EXISTS idx_journeys_active ON journeys(status) WHERE status = 'ACTIVE';
+
