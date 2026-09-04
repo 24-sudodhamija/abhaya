@@ -9,36 +9,59 @@ import { Navigation, ShieldAlert, MapPin, Bot, ArrowRight, ShieldCheck, HeartPul
 
 export default function Home() {
   const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [user, setUser] = useState<any>(null);
   const safetyData = useMemo(() => calculateSafetyScore(1, new Date().getHours(), 3), []);
 
   useEffect(() => {
-    try {
-      const storedUser = localStorage.getItem('abhaya_user');
-      if (!storedUser) {
-        router.push('/login');
-        return;
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+
+    let isSubscribed = true;
+
+    // Defer router navigation until router is fully initialized after mount
+    const timer = setTimeout(() => {
+      if (!isSubscribed) return;
+
+      try {
+        const storedUser = localStorage.getItem('abhaya_user');
+        if (!storedUser) {
+          router.replace('/login');
+          return;
+        }
+        const parsed = JSON.parse(storedUser);
+        if (!parsed || parsed.is_verified !== true) {
+          router.replace('/login');
+        } else {
+          setUser(parsed);
+          setIsAuthenticated(true);
+        }
+      } catch {
+        router.replace('/login');
       }
-      const parsed = JSON.parse(storedUser);
-      if (!parsed || parsed.is_verified !== true) {
-        router.push('/login');
-      } else {
-        setUser(parsed);
-        setIsAuthenticated(true);
-      }
-    } catch {
-      router.push('/login');
-    }
-  }, [router]);
+    }, 0);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [isMounted, router]);
 
   const handleSignOut = () => {
-    localStorage.removeItem('abhaya_user');
-    sessionStorage.removeItem('abhaya_session_active');
-    router.push('/login');
+    try {
+      localStorage.removeItem('abhaya_user');
+      sessionStorage.removeItem('abhaya_session_active');
+      router.push('/login');
+    } catch (err) {
+      console.error('Sign out navigation error:', err);
+    }
   };
 
-  if (!isAuthenticated) {
+  if (!isMounted || !isAuthenticated) {
     return (
       <div className="min-h-screen bg-[#0a0104] text-pink-50 flex flex-col items-center justify-center p-4 font-sans antialiased">
         <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">

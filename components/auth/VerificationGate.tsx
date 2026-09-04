@@ -11,35 +11,54 @@ interface VerificationGateProps {
 export default function VerificationGate({ children }: VerificationGateProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const [isMounted, setIsMounted] = useState(false);
   const [isVerified, setIsVerified] = useState<boolean | null>(null);
 
   useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isMounted) return;
+
     // Skip verification guard for the login page
     if (pathname === '/login') {
       setIsVerified(true);
       return;
     }
 
-    try {
-      const stored = localStorage.getItem('abhaya_user');
-      if (!stored) {
-        setIsVerified(false);
-        router.push('/login');
-        return;
-      }
+    let isSubscribed = true;
 
-      const user = JSON.parse(stored);
-      if (user && user.is_verified === true) {
-        setIsVerified(true);
-      } else {
+    // Defer router navigation until router is fully initialized after mount
+    const timer = setTimeout(() => {
+      if (!isSubscribed) return;
+
+      try {
+        const stored = localStorage.getItem('abhaya_user');
+        if (!stored) {
+          setIsVerified(false);
+          router.replace('/login');
+          return;
+        }
+
+        const user = JSON.parse(stored);
+        if (user && user.is_verified === true) {
+          setIsVerified(true);
+        } else {
+          setIsVerified(false);
+          router.replace('/login');
+        }
+      } catch {
         setIsVerified(false);
-        router.push('/login');
+        router.replace('/login');
       }
-    } catch {
-      setIsVerified(false);
-      router.push('/login');
-    }
-  }, [pathname, router]);
+    }, 0);
+
+    return () => {
+      isSubscribed = false;
+      clearTimeout(timer);
+    };
+  }, [isMounted, pathname, router]);
 
   // Render /login directly without gate check
   if (pathname === '/login') {
