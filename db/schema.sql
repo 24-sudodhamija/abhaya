@@ -87,9 +87,61 @@ CREATE TABLE IF NOT EXISTS hazard_zones (
     reported_by UUID REFERENCES users(id) ON DELETE SET NULL,
     title VARCHAR(100) NOT NULL,
     description TEXT,
+    category VARCHAR(50),
     lat DOUBLE PRECISION NOT NULL,
     lng DOUBLE PRECISION NOT NULL,
     risk_level VARCHAR(20) DEFAULT 'MEDIUM',
+    image_url TEXT,
+    verification_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 8. Friendships
+CREATE TABLE IF NOT EXISTS friendships (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    friend_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    status VARCHAR(20) DEFAULT 'ACCEPTED',
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(user_id, friend_id)
+);
+
+-- 9. Direct Messages
+CREATE TABLE IF NOT EXISTS direct_messages (
+    id BIGSERIAL PRIMARY KEY,
+    sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    receiver_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 10. Hazard Comments
+CREATE TABLE IF NOT EXISTS hazard_comments (
+    id BIGSERIAL PRIMARY KEY,
+    hazard_id UUID REFERENCES hazard_zones(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 11. Support Rooms
+CREATE TABLE IF NOT EXISTS support_rooms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    creator_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    title VARCHAR(150) NOT NULL,
+    topic VARCHAR(100),
+    description TEXT,
+    is_volunteer_led BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 12. Room Messages
+CREATE TABLE IF NOT EXISTS room_messages (
+    id BIGSERIAL PRIMARY KEY,
+    room_id UUID REFERENCES support_rooms(id) ON DELETE CASCADE,
+    sender_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    message TEXT NOT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -98,4 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_pings_journey_time ON location_pings(journey_id, 
 CREATE INDEX IF NOT EXISTS idx_pings_user_time ON location_pings(user_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_incidents_active ON incidents(status) WHERE status = 'ACTIVE';
 CREATE INDEX IF NOT EXISTS idx_journeys_active ON journeys(status) WHERE status = 'ACTIVE';
+CREATE INDEX IF NOT EXISTS idx_friendships_user ON friendships(user_id);
+CREATE INDEX IF NOT EXISTS idx_dm_pair ON direct_messages(sender_id, receiver_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_hazard_comments ON hazard_comments(hazard_id, created_at ASC);
+CREATE INDEX IF NOT EXISTS idx_room_messages ON room_messages(room_id, created_at ASC);
+
 
