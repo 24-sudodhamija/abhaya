@@ -48,6 +48,9 @@ export default function MapPage() {
   const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
   const [routeDistance, setRouteDistance] = useState<number | null>(null);
   const [routeDuration, setRouteDuration] = useState<number | null>(null);
+  const [routeSafetyScore, setRouteSafetyScore] = useState<number | null>(null);
+  const [hazardsAlongRoute, setHazardsAlongRoute] = useState<any[]>([]);
+  const [detourMessage, setDetourMessage] = useState<string | null>(null);
 
   // Hazards
   const [hazards, setHazards] = useState<HazardItem[]>([]);
@@ -231,6 +234,9 @@ export default function MapPage() {
     setRouteCoordinates([]);
     setRouteDistance(null);
     setRouteDuration(null);
+    setRouteSafetyScore(null);
+    setHazardsAlongRoute([]);
+    setDetourMessage(null);
   };
 
   // 5. Calculate Route
@@ -264,6 +270,17 @@ export default function MapPage() {
       setRouteCoordinates(data.coordinates);
       setRouteDistance(data.distance);
       setRouteDuration(data.duration);
+      if (typeof data.safetyScore === 'number') {
+        setRouteSafetyScore(data.safetyScore);
+      }
+      if (Array.isArray(data.hazardsAlongRoute)) {
+        setHazardsAlongRoute(data.hazardsAlongRoute);
+      }
+      if (data.detourMessage) {
+        setDetourMessage(data.detourMessage);
+      } else {
+        setDetourMessage(null);
+      }
     } catch (err: any) {
       setErrorMessage(err?.message || 'Route planning request failed.');
     } finally {
@@ -403,6 +420,11 @@ export default function MapPage() {
       return;
     }
 
+    if (!user || user.is_verified !== true) {
+      setErrorMessage('Only verified residents with active ledger credentials can report hazard zones.');
+      return;
+    }
+
     setIsSubmittingHazard(true);
     try {
       const res = await fetch('/api/hazards', {
@@ -475,6 +497,12 @@ export default function MapPage() {
             <button
               type="button"
               onClick={() => {
+                if (!user || user.is_verified !== true) {
+                  setErrorMessage(
+                    'Identity Verification Required: Only verified residents with active ledger credentials can report hazard zones.'
+                  );
+                  return;
+                }
                 setIsReportingHazard(!isReportingHazard);
                 setHazardPin(null);
               }}
@@ -812,8 +840,32 @@ export default function MapPage() {
                   </div>
                 </div>
 
+                {/* Route Safety Score Index */}
+                {routeSafetyScore !== null && (
+                  <div className="flex items-center justify-between p-3 rounded-2xl bg-[#1c0612] border border-rose-950/70">
+                    <span className="text-xs text-zinc-300 font-medium">Route Safety Index</span>
+                    <span
+                      className={`text-xs font-bold font-mono px-2.5 py-0.5 rounded-full border ${
+                        routeSafetyScore >= 80
+                          ? 'bg-emerald-950/60 text-emerald-300 border-emerald-700/60'
+                          : 'bg-rose-950/60 text-rose-300 border-rose-700/60 animate-pulse'
+                      }`}
+                    >
+                      {routeSafetyScore}/100 {routeSafetyScore >= 80 ? '• Optimal Corridor' : '• Caution Advised'}
+                    </span>
+                  </div>
+                )}
+
+                {/* Recommended Detour Alert */}
+                {detourMessage && (
+                  <div className="p-3 rounded-2xl bg-rose-950/50 border border-rose-700/70 text-xs text-rose-200 flex items-start gap-2.5 shadow-md animate-pulse">
+                    <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span className="leading-snug font-medium">{detourMessage}</span>
+                  </div>
+                )}
+
                 {/* Hazard Corridor Assessment */}
-                {hazardCorridorWarning && (
+                {hazardCorridorWarning && !detourMessage && (
                   <div
                     className={`p-3 rounded-2xl border text-xs flex items-start gap-2.5 ${
                       hazardCorridorWarning.level === 'HIGH'
@@ -945,6 +997,9 @@ export default function MapPage() {
               userLocation={userLocation}
               routeCoordinates={routeCoordinates}
               hazards={hazards}
+              safetyScore={routeSafetyScore}
+              hazardsAlongRoute={hazardsAlongRoute}
+              detourMessage={detourMessage}
               onSelectLocation={(lat, lng) => {
                 if (isReportingHazard) {
                   setHazardPin({ lat, lng });
@@ -992,7 +1047,7 @@ export default function MapPage() {
             {/* In-Map Floating Legend / Status Chip */}
             <div className="absolute top-4 right-4 z-10 bg-[#16040c]/80 backdrop-blur-md border border-rose-900/40 px-3.5 py-1.5 rounded-full text-[11px] font-medium text-pink-300 shadow-lg flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>CartoDB Dark Matter Active</span>
+              <span>Live Dark Map Active</span>
             </div>
           </div>
         </div>

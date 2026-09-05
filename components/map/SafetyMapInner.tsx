@@ -31,6 +31,20 @@ export interface SafetyMapProps {
   hazards?: HazardItem[];
   onSelectLocation?: (lat: number, lng: number) => void;
   className?: string;
+  safetyScore?: number | null;
+  hazardsAlongRoute?: Array<{
+    id?: string;
+    title?: string;
+    description?: string | null;
+    lat?: number;
+    lng?: number;
+    risk_level?: string;
+    distanceToRoute?: number;
+    [key: string]: any;
+  }>;
+  warningMessage?: string | null;
+  hasHazardConflict?: boolean;
+  detourMessage?: string | null;
 }
 
 // User animated directional marker
@@ -100,6 +114,31 @@ const createHazardIcon = (riskLevel: string) => {
   });
 };
 
+// Dynamic resize handler to ensure Leaflet properly updates viewport and avoids grey tiles
+function MapResizeHandler() {
+  const map = useMap();
+
+  useEffect(() => {
+    const handleResize = () => {
+      map.invalidateSize();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    // Initial triggers for layout stabilization and CSS transitions
+    const t1 = setTimeout(() => map.invalidateSize(), 150);
+    const t2 = setTimeout(() => map.invalidateSize(), 500);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, [map]);
+
+  return null;
+}
+
 // Map click event subscriber
 function MapClickHandler({ onSelectLocation }: { onSelectLocation?: (lat: number, lng: number) => void }) {
   useMapEvents({
@@ -126,8 +165,10 @@ function MapViewController({
     if (routeCoordinates && routeCoordinates.length > 0) {
       const bounds = L.latLngBounds(routeCoordinates);
       map.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      map.invalidateSize();
     } else if (userLocation) {
       map.setView(userLocation, 15, { animate: true });
+      map.invalidateSize();
     }
   }, [userLocation, routeCoordinates, map]);
 
@@ -141,6 +182,11 @@ export default function SafetyMapInner({
   hazards = [],
   onSelectLocation,
   className = '',
+  safetyScore,
+  hazardsAlongRoute = [],
+  warningMessage,
+  hasHazardConflict,
+  detourMessage,
 }: SafetyMapProps) {
   // Normalize route coordinates: OSRM returns [lng, lat], Leaflet expects [lat, lng]
   const normalizedRoute = useMemo<[number, number][]>(() => {
@@ -166,9 +212,35 @@ export default function SafetyMapInner({
     return null;
   }, [normalizedRoute]);
 
+  // Safety evaluation: score >= 80 is considered safe (emerald/rose), < 80 triggers amber/crimson caution
+  const isSafe = safetyScore === undefined || safetyScore === null || safetyScore >= 80;
+
+  // Derive prominent hazard title for the caution warning pill
+  const warningHazardTitle = useMemo(() => {
+    if (hazardsAlongRoute && hazardsAlongRoute.length > 0 && hazardsAlongRoute[0]?.title) {
+      return hazardsAlongRoute[0].title;
+    }
+    if (hazards && hazards.length > 0 && normalizedRoute.length > 0) {
+      let closestTitle = hazards[0].title;
+      let closestDist = Infinity;
+      for (const h of hazards) {
+        for (const [lat, lng] of normalizedRoute) {
+          const d = Math.hypot(h.lat - lat, h.lng - lng);
+          if (d < closestDist) {
+            closestDist = d;
+            closestTitle = h.title;
+          }
+        }
+      }
+      return closestTitle;
+    }
+    return 'Reported Hazard';
+  }, [hazardsAlongRoute, hazards, normalizedRoute]);
+
   return (
     <div
-      className={`relative w-full h-full min-h-[400px] rounded-3xl overflow-hidden border border-rose-950/40 shadow-2xl bg-[#0a0104] ${className}`}
+      className={`relative w-full h-full min-h-[500px] rounded-3xl overflow-hidden border border-rose-950/40 shadow-2xl bg-[#0a0104] ${className}`}
+      style={{ height: '100%', minHeight: '500px' }}
     >
       <style jsx global>{`
         .leaflet-container {
@@ -210,19 +282,46 @@ export default function SafetyMapInner({
         }
       `}</style>
 
+      {/* Warning Pill Overlay for Hazardous Routes (safetyScore < 80) */}
+      {normalizedRoute.length > 0 && !isSafe && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[500] max-w-[92%] sm:max-w-md pointer-events-auto transition-all animate-pulse">
+          <div className="bg-[#18040d]/95 backdrop-blur-md border border-rose-600/90 text-rose-100 px-4 py-2 rounded-full shadow-[0_0_24px_rgba(225,29,72,0.45)] flex items-center gap-2.5 text-xs font-semibold">
+            <span className="flex h-2.5 w-2.5 relative shrink-0">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500" />
+            </span>
+            <span className="truncate">
+              {warningMessage || (
+                <>
+                  Route passes near <span className="text-amber-300 font-bold">{warningHazardTitle}</span> - Caution advised
+                </>
+              )}
+            </span>
+            {safetyScore !== undefined && safetyScore !== null && (
+              <span className="ml-auto bg-rose-950/90 border border-rose-700/60 text-[10px] font-mono px-2 py-0.5 rounded-full text-rose-300 shrink-0">
+                Score {safetyScore}/100
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
       <MapContainer
         center={defaultCenter}
         zoom={14}
         scrollWheelZoom={true}
         className="w-full h-full"
+        style={{ height: '100%', minHeight: '500px' }}
       >
-        {/* CartoDB Dark Matter dark tiles */}
+        {/* OpenStreetMap Tile Layer with Custom Dark Inversion */}
         <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          subdomains="abcd"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
+          className="dark-map-tiles"
         />
+
+        <MapResizeHandler />
 
         <MapViewController
           userLocation={userLocation}
@@ -272,10 +371,10 @@ export default function SafetyMapInner({
           const isHigh = risk === 'HIGH';
           const isLow = risk === 'LOW';
 
-          // Exact risk styling per specification:
-          // Low Risk: Faint border, transparent fill (color: '#71717a', fillColor: 'transparent', fillOpacity: 0)
-          // Medium Risk: Amber ring with yellow glow (color: '#f59e0b', fillColor: '#facc15', fillOpacity: 0.25)
-          // High Risk: Saturated crimson ring with red fill (color: '#e11d48', fillColor: '#f43f5e', fillOpacity: 0.45)
+          // Styling:
+          // Low Risk: Faint border, transparent fill
+          // Medium Risk: Amber ring with yellow glow
+          // High Risk: Saturated crimson ring with red fill
           const circleColor = isHigh ? '#e11d48' : isLow ? '#71717a' : '#f59e0b';
           const circleFillColor = isHigh ? '#f43f5e' : isLow ? 'transparent' : '#facc15';
           const circleFillOpacity = isHigh ? 0.45 : isLow ? 0 : 0.25;
@@ -363,31 +462,72 @@ export default function SafetyMapInner({
           );
         })}
 
-        {/* Route Polylines */}
+        {/* Route Polylines: Emerald/Rose for safe routes (>= 80), Amber/Crimson for hazard routes (< 80) */}
         {normalizedRoute.length > 0 && (
           <>
-            {/* Ambient glow outline */}
-            <Polyline
-              positions={normalizedRoute}
-              pathOptions={{
-                color: '#f43f5e',
-                weight: 8,
-                opacity: 0.35,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }}
-            />
-            {/* Bright core route polyline */}
-            <Polyline
-              positions={normalizedRoute}
-              pathOptions={{
-                color: '#f43f5e',
-                weight: 4,
-                opacity: 1.0,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }}
-            />
+            {isSafe ? (
+              <>
+                {/* Ambient glow outline for safe route (emerald / rose #f43f5e) */}
+                <Polyline
+                  positions={normalizedRoute}
+                  pathOptions={{
+                    color: '#f43f5e',
+                    weight: 8,
+                    opacity: 0.35,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+                {/* Bright core route polyline */}
+                <Polyline
+                  positions={normalizedRoute}
+                  pathOptions={{
+                    color: '#f43f5e',
+                    weight: 4,
+                    opacity: 1.0,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                {/* Warning ambient glow outline (amber / crimson #e11d48) */}
+                <Polyline
+                  positions={normalizedRoute}
+                  pathOptions={{
+                    color: '#e11d48',
+                    weight: 10,
+                    opacity: 0.45,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+                {/* Crimson hazard segment polyline */}
+                <Polyline
+                  positions={normalizedRoute}
+                  pathOptions={{
+                    color: '#e11d48',
+                    weight: 5,
+                    opacity: 1.0,
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+                {/* Inner high-contrast amber caution dashes */}
+                <Polyline
+                  positions={normalizedRoute}
+                  pathOptions={{
+                    color: '#fbbf24',
+                    weight: 2,
+                    opacity: 0.9,
+                    dashArray: '8, 8',
+                    lineCap: 'round',
+                    lineJoin: 'round',
+                  }}
+                />
+              </>
+            )}
           </>
         )}
       </MapContainer>

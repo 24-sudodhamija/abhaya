@@ -25,12 +25,34 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Strip leading country code (+91), prefix 91, leading 0, and non-digit characters
+    let cleanPhone = phone.trim().replace(/[\s\-()]/g, '');
+    if (cleanPhone.startsWith('+91')) {
+      cleanPhone = cleanPhone.slice(3);
+    } else if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+      cleanPhone = cleanPhone.slice(2);
+    } else if (cleanPhone.startsWith('0')) {
+      cleanPhone = cleanPhone.slice(1);
+    }
+
+    // Strict Indian mobile validation: 10 digits starting with 6, 7, 8, or 9
+    const INDIAN_MOBILE_REGEX = /^[6-9]\d{9}$/;
+    if (!INDIAN_MOBILE_REGEX.test(cleanPhone)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Please enter a valid 10-digit Indian mobile number starting with 6-9.',
+        },
+        { status: 400 }
+      );
+    }
+
     const trimmedFullName = fullName.trim();
-    const trimmedPhone = phone.trim();
+    const standardizedPhone = `+91${cleanPhone}`;
 
     const rows = await sql`
       INSERT INTO users (full_name, phone)
-      VALUES (${trimmedFullName}, ${trimmedPhone})
+      VALUES (${trimmedFullName}, ${standardizedPhone})
       RETURNING id, full_name, phone, is_verified;
     `;
 

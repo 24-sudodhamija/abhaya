@@ -1,11 +1,22 @@
 'use client';
 
-import React, { useState } from 'react';
-import { ShieldCheck, X, Loader2, AlertCircle, KeyRound, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  ShieldCheck,
+  X,
+  Loader2,
+  AlertCircle,
+  KeyRound,
+  ArrowLeft,
+  CheckCircle2,
+  RotateCw,
+  Clock,
+} from 'lucide-react';
+import { validateVerhoeff } from '@/lib/auth/verhoeff';
 
 interface IdentityVerificationModalProps {
   userId: string;
-  onSuccess: (maskedId: string) => void;
+  onSuccess: (maskedId: string, updatedUser?: any) => void;
   onClose: () => void;
 }
 
@@ -16,19 +27,56 @@ export default function IdentityVerificationModal({
 }: IdentityVerificationModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
   const [rawIdInput, setRawIdInput] = useState('');
+  const [inlineIdError, setInlineIdError] = useState<string | null>(null);
   const [transactionId, setTransactionId] = useState('');
   const [maskedId, setMaskedId] = useState('');
   const [otp, setOtp] = useState('');
+  const [resendCooldown, setResendCooldown] = useState(30);
   const [isLoading, setIsLoading] = useState(false);
+  const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isConfirmed, setIsConfirmed] = useState(false);
 
-  // Format 12-digit number into 4-digit chunks: 0000 0000 0000
+  const otpInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus OTP input when entering step 2
+  useEffect(() => {
+    if (step === 2) {
+      setTimeout(() => {
+        otpInputRef.current?.focus();
+      }, 50);
+    }
+  }, [step]);
+
+  // 30-second countdown timer for Resend Code
+  useEffect(() => {
+    if (step !== 2 || resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [step, resendCooldown]);
+
+  // Format 12-digit number into spaced blocks: #### #### ####
   const handleIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
+    setInlineIdError(null);
+
     const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 12);
-    const formatted = digitsOnly.match(/.{1,4}/g)?.join(' ') || digitsOnly;
+    const chunks = digitsOnly.match(/.{1,4}/g);
+    const formatted = chunks ? chunks.join(' ') : digitsOnly;
     setRawIdInput(formatted);
+
+    // Dynamic inline validation as user reaches 12 digits
+    if (digitsOnly.length === 12) {
+      if (digitsOnly.startsWith('0') || digitsOnly.startsWith('1')) {
+        setInlineIdError('Identity numbers cannot begin with 0 or 1.');
+      } else if (!validateVerhoeff(digitsOnly)) {
+        setInlineIdError('Invalid identity number (Verhoeff checksum failed).');
+      } else {
+        setInlineIdError(null);
+      }
+    }
   };
 
   const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,13 +89,24 @@ export default function IdentityVerificationModal({
 
   const handleDispatchOtp = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
     if (cleanRawIdentifier.length !== 12) {
-      setError('Please enter a valid 12-digit identity number.');
+      setInlineIdError('Identity number must contain exactly 12 numeric digits.');
+      return;
+    }
+
+    if (cleanRawIdentifier.startsWith('0') || cleanRawIdentifier.startsWith('1')) {
+      setInlineIdError('Identity numbers cannot begin with 0 or 1.');
+      return;
+    }
+
+    if (!validateVerhoeff(cleanRawIdentifier)) {
+      setInlineIdError('Invalid identity number (Verhoeff checksum failed).');
       return;
     }
 
     setIsLoading(true);
-    setError(null);
 
     try {
       const res = await fetch('/api/auth/identity/otp', {
@@ -67,11 +126,44 @@ export default function IdentityVerificationModal({
 
       setTransactionId(data.transactionId);
       setMaskedId(data.maskedId);
+      setResendCooldown(30);
+      setOtp('');
       setStep(2);
     } catch (err: any) {
       setError(err?.message || 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || isResending) return;
+    setError(null);
+    setIsResending(true);
+
+    try {
+      const res = await fetch('/api/auth/identity/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          rawIdentifier: cleanRawIdentifier,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to resend verification code.');
+      }
+
+      setTransactionId(data.transactionId);
+      setResendCooldown(30);
+      setOtp('');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to resend verification code.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -103,9 +195,23 @@ export default function IdentityVerificationModal({
         throw new Error(data.error || 'Identity confirmation failed.');
       }
 
+      // Update localStorage with verified female profile if returned
+      if (data.user) {
+        try {
+          const stored = localStorage.getItem('abhaya_user');
+          const existing = stored ? JSON.parse(stored) : {};
+          localStorage.setItem(
+            'abhaya_user',
+            JSON.stringify({ ...existing, ...data.user, is_verified: true, gender: 'Female' })
+          );
+        } catch (e) {
+          console.error('Failed to update localStorage with verified profile:', e);
+        }
+      }
+
       setIsConfirmed(true);
       setTimeout(() => {
-        onSuccess(data.maskedId || maskedId);
+        onSuccess(data.maskedId || maskedId, data.user);
       }, 700);
     } catch (err: any) {
       setError(err?.message || 'Verification confirmation failed. Please check your OTP.');
@@ -113,6 +219,8 @@ export default function IdentityVerificationModal({
       setIsLoading(false);
     }
   };
+
+  const isIdValid = cleanRawIdentifier.length === 12 && !inlineIdError && validateVerhoeff(cleanRawIdentifier);
 
   return (
     <div
@@ -155,9 +263,9 @@ export default function IdentityVerificationModal({
           Encrypted tokenization ensures complete numbers are never stored.
         </p>
 
-        {/* Error Banner */}
+        {/* Global Error Banner / Demographic Rejection Banner */}
         {error && (
-          <div className="mt-4 flex items-start gap-2.5 rounded-2xl border border-rose-800/80 bg-rose-950/50 p-3.5 text-xs text-rose-200 animate-in fade-in">
+          <div className="mt-4 flex items-start gap-2.5 bg-rose-950/40 border border-rose-900 text-rose-300 text-xs rounded-xl p-3.5 animate-in fade-in">
             <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
             <span className="leading-snug">{error}</span>
           </div>
@@ -180,9 +288,16 @@ export default function IdentityVerificationModal({
             {step === 1 && (
               <form onSubmit={handleDispatchOtp} className="mt-6 space-y-4">
                 <div className="space-y-1.5">
-                  <label htmlFor="rawIdentifier" className="block text-xs font-medium text-zinc-300">
-                    12-Digit Identity Number
-                  </label>
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="rawIdentifier" className="block text-xs font-medium text-zinc-300">
+                      12-Digit Identity Number
+                    </label>
+                    {isIdValid && (
+                      <span className="text-[11px] text-emerald-400 flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Validated
+                      </span>
+                    )}
+                  </div>
                   <input
                     id="rawIdentifier"
                     type="text"
@@ -190,20 +305,35 @@ export default function IdentityVerificationModal({
                     autoComplete="off"
                     value={rawIdInput}
                     onChange={handleIdChange}
-                    placeholder="0000 0000 0000"
+                    placeholder="#### #### ####"
                     maxLength={14}
                     disabled={isLoading}
-                    className="w-full bg-[#0d0207] border border-rose-950/80 rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none font-mono tracking-widest disabled:opacity-50 text-base sm:text-sm"
+                    className={`w-full bg-[#0d0207] border rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-700 outline-none font-mono tracking-widest disabled:opacity-50 text-base sm:text-sm transition-colors ${
+                      inlineIdError
+                        ? 'border-rose-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                        : isIdValid
+                        ? 'border-emerald-600/80 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                        : 'border-rose-950/80 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                    }`}
                   />
-                  <div className="flex justify-between items-center text-[11px] text-zinc-500 pt-0.5 px-1">
-                    <span>Aadhaar / National ID Format</span>
-                    <span className="font-mono">{cleanRawIdentifier.length}/12</span>
-                  </div>
+
+                  {/* Inline Verhoeff / Digit Error */}
+                  {inlineIdError ? (
+                    <div className="flex items-center gap-1.5 text-rose-400 text-xs pt-1">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      <span>{inlineIdError}</span>
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center text-[11px] text-zinc-500 pt-0.5 px-1">
+                      <span>Aadhaar / National ID Format</span>
+                      <span className="font-mono">{cleanRawIdentifier.length}/12</span>
+                    </div>
+                  )}
                 </div>
 
                 <button
                   type="submit"
-                  disabled={cleanRawIdentifier.length !== 12 || isLoading}
+                  disabled={cleanRawIdentifier.length !== 12 || Boolean(inlineIdError) || isLoading}
                   className="w-full bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-semibold rounded-2xl py-3.5 shadow-lg shadow-rose-950/50 transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm"
                 >
                   {isLoading ? (
@@ -248,26 +378,43 @@ export default function IdentityVerificationModal({
                     </button>
                   </div>
                   <input
+                    ref={otpInputRef}
                     id="otp"
                     type="text"
                     inputMode="numeric"
                     autoComplete="one-time-code"
+                    autoFocus
                     value={otp}
                     onChange={handleOtpChange}
-                    placeholder="123456"
+                    placeholder=""
                     maxLength={6}
                     disabled={isLoading}
-                    className="w-full bg-[#0d0207] border border-rose-950/80 rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-600 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none font-mono tracking-widest text-center text-lg disabled:opacity-50"
+                    className="w-full bg-[#0d0207] border border-rose-950/80 rounded-2xl px-4 py-3.5 text-zinc-100 placeholder-zinc-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 outline-none font-mono tracking-widest text-center text-xl disabled:opacity-50"
                   />
-                  <div className="flex items-center justify-between text-xs px-1 text-zinc-400 pt-0.5">
-                    <span>Demo Passkey: <strong className="font-mono text-rose-300">123456</strong></span>
-                    <button
-                      type="button"
-                      onClick={() => setOtp('123456')}
-                      className="text-rose-400 hover:text-rose-300 text-xs underline font-medium"
-                    >
-                      Autofill
-                    </button>
+
+                  {/* 30-Second Resend Countdown Bar */}
+                  <div className="flex items-center justify-between text-xs px-1 text-zinc-400 pt-1">
+                    <span>Didn't receive code?</span>
+                    {resendCooldown > 0 ? (
+                      <span className="font-mono text-zinc-500 text-xs flex items-center gap-1">
+                        <Clock className="w-3.5 h-3.5 text-zinc-500" />
+                        <span>Resend in {resendCooldown}s</span>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleResendOtp}
+                        disabled={isLoading || isResending}
+                        className="text-rose-400 hover:text-rose-300 font-semibold underline disabled:opacity-50 transition-colors flex items-center gap-1"
+                      >
+                        {isResending ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <RotateCw className="w-3 h-3" />
+                        )}
+                        <span>Resend Code</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 

@@ -17,12 +17,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const trimmedPhone = phone.trim();
+    let cleanPhone = phone.trim().replace(/[\s\-()]/g, '');
+    if (cleanPhone.startsWith('+91')) {
+      cleanPhone = cleanPhone.slice(3);
+    } else if (cleanPhone.startsWith('91') && cleanPhone.length === 12) {
+      cleanPhone = cleanPhone.slice(2);
+    } else if (cleanPhone.startsWith('0')) {
+      cleanPhone = cleanPhone.slice(1);
+    }
+
+    const withPrefix = `+91${cleanPhone}`;
+    const withoutPrefix = cleanPhone;
 
     const rows = await sql`
       SELECT id, full_name, phone, is_verified, masked_id, created_at
       FROM users
-      WHERE phone = ${trimmedPhone}
+      WHERE phone = ${withPrefix} OR phone = ${withoutPrefix}
       LIMIT 1;
     `;
 

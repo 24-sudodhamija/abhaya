@@ -166,16 +166,16 @@ export async function POST(request: NextRequest) {
     const lng = Number(body.lng);
     const imageBase64 = body.imageBase64 || body.image_base64 || body.imageUrl || body.image_url || null;
 
-    // 1. Strict Verification Check:
-    // Query users table: verify that id = userId AND is_verified = TRUE.
-    // If false or user does not exist, return a 403 Forbidden response.
+    // 1. Strict Verification Check (Disallow Anonymous Submissions):
+    // Validate that userId is present, valid UUID, and belongs to a verified user.
+    // Reject with 401 Unauthorized if missing, invalid, or unverified.
     if (!userId || !UUID_REGEX.test(userId)) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Only verified residents can submit safety reports',
+          error: 'Anonymous reporting is disabled. All hazard and incident logs must be tied to a verified account.',
         },
-        { status: 403 }
+        { status: 401 }
       );
     }
 
@@ -189,9 +189,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: 'Only verified residents can submit safety reports',
+          error: 'Anonymous reporting is disabled. All hazard and incident logs must be tied to a verified account.',
         },
-        { status: 403 }
+        { status: 401 }
       );
     }
 

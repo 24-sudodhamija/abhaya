@@ -204,11 +204,6 @@ export default function LoginPage() {
               </p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 bg-pink-500/10 border border-pink-500/30 text-pink-300 px-3.5 py-1.5 rounded-full text-xs font-semibold shadow-sm">
-            <ShieldCheck className="w-4 h-4 text-pink-400" />
-            Shield Engine Active
-          </div>
         </header>
 
         {/* Title Section */}
@@ -367,7 +362,7 @@ export default function LoginPage() {
       {showVerificationModal && userId && (
         <IdentityVerificationModal
           userId={userId}
-          onSuccess={(verifiedMaskedId) => {
+          onSuccess={(verifiedMaskedId, verifiedUser) => {
             setIsVerified(true);
             setMaskedId(verifiedMaskedId);
             setShowVerificationModal(false);
@@ -378,10 +373,14 @@ export default function LoginPage() {
             // Store full session payload under abhaya_user
             const sessionPayload = {
               id: userId,
-              fullName: fullName.trim(),
-              phone: formattedPhone,
+              fullName: verifiedUser?.fullName || fullName.trim(),
+              phone: verifiedUser?.phone || formattedPhone,
               is_verified: true,
+              gender: 'Female',
               maskedId: verifiedMaskedId,
+              masked_id: verifiedMaskedId,
+              is_volunteer: verifiedUser?.is_volunteer ?? false,
+              trust_score: verifiedUser?.trust_score ?? 98,
             };
 
             localStorage.setItem('abhaya_user', JSON.stringify(sessionPayload));

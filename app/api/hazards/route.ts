@@ -67,9 +67,30 @@ export async function POST(request: NextRequest) {
       ? risk_level.toUpperCase()
       : 'MEDIUM';
 
-    // Validate reportedBy UUID format if provided
+    // Validate reportedBy UUID format and verified status (Anonymous reporting disabled)
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    const validReportedBy = reportedBy && uuidRegex.test(reportedBy) ? reportedBy : null;
+    if (!reportedBy || !uuidRegex.test(reportedBy)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Anonymous reporting is disabled. All hazard and incident logs must be tied to a verified account.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const userRows = await sql`
+      SELECT id, is_verified FROM users WHERE id = ${reportedBy};
+    `;
+    if (!userRows || userRows.length === 0 || userRows[0].is_verified !== true) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Anonymous reporting is disabled. All hazard and incident logs must be tied to a verified account.',
+        },
+        { status: 401 }
+      );
+    }
 
     const rows = await sql`
       INSERT INTO hazard_zones (
@@ -85,7 +106,7 @@ export async function POST(request: NextRequest) {
         ${latitude},
         ${longitude},
         ${riskLevel},
-        ${validReportedBy}
+        ${reportedBy}
       )
       RETURNING id, title, description, lat, lng, risk_level, reported_by, created_at;
     `;

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Home, Map, Navigation, AlertTriangle, ShieldAlert, Bot, Heart, LogOut, Users, UserCheck } from 'lucide-react';
+import { Home, Map, Navigation, AlertTriangle, ShieldAlert, Heart, LogOut, Users, UserCheck } from 'lucide-react';
 
 const navItems = [
   { name: 'Home', href: '/', icon: Home },
@@ -11,7 +11,6 @@ const navItems = [
   { name: 'Report', href: '/report', icon: AlertTriangle },
   { name: 'Community', href: '/community', icon: Users },
   { name: 'Profile', href: '/profile', icon: UserCheck },
-  { name: 'Assistant', href: '/assistant', icon: Bot },
 ];
 
 export default function Navbar() {

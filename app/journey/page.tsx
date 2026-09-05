@@ -20,23 +20,10 @@ import {
   PhoneCall,
   Compass,
   RefreshCw,
-  LocateFixed,
-  Eye,
-  Route,
+  ArrowRight,
+  Shield,
+  Check,
 } from 'lucide-react';
-
-// Standard fallback mock corridor (Janpath -> India Gate) when no active route was started on /map
-const FALLBACK_MOCK_ROUTE: [number, number][] = [
-  [28.6328, 77.2197], // Connaught Place Radial
-  [28.6295, 77.2194],
-  [28.6268, 77.2191], // Janpath Metro
-  [28.6238, 77.2188], // Tolstoy Crossing
-  [28.6205, 77.2184], // Windsor Place
-  [28.6178, 77.2198], // Ashoka Road Approach
-  [28.6146, 77.2225], // National Museum Court
-  [28.6136, 77.2260], // Kartavya Path West
-  [28.6129, 77.2295], // India Gate
-];
 
 type JourneyStatus = 'ACTIVE' | 'DEVIATED' | 'EMERGENCY' | 'COMPLETED';
 
@@ -137,13 +124,17 @@ export default function LiveJourneyPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [isMounted, setIsMounted] = useState(false);
 
+  // Active Journey Status & Existence
+  const [hasActiveJourney, setHasActiveJourney] = useState<boolean | null>(null);
+  const [isLoadingJourney, setIsLoadingJourney] = useState<boolean>(true);
+
   // Journey Metadata
-  const [journeyId, setJourneyId] = useState<string>('');
-  const [originName, setOriginName] = useState<string>('Connaught Place');
-  const [destinationName, setDestinationName] = useState<string>('India Gate');
-  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>(FALLBACK_MOCK_ROUTE);
-  const [estimatedDurationMins, setEstimatedDurationMins] = useState<number>(24);
-  const [totalDistanceKm, setTotalDistanceKm] = useState<string>('2.4');
+  const [journeyId, setJourneyId] = useState<string | null>(null);
+  const [originName, setOriginName] = useState<string>('');
+  const [destinationName, setDestinationName] = useState<string>('');
+  const [routeCoordinates, setRouteCoordinates] = useState<[number, number][]>([]);
+  const [estimatedDurationMins, setEstimatedDurationMins] = useState<number>(0);
+  const [totalDistanceKm, setTotalDistanceKm] = useState<string>('0.0');
 
   // Live Telemetry & Geolocation
   const [currentLocation, setCurrentLocation] = useState<[number, number] | null>(null);
@@ -159,6 +150,7 @@ export default function LiveJourneyPage() {
   const [isBurstMode, setIsBurstMode] = useState<boolean>(false);
   const [lastPingTime, setLastPingTime] = useState<string>('Just now');
   const [pingCount, setPingCount] = useState<number>(0);
+  const [safetyScore, setSafetyScore] = useState<number | null>(null);
 
   // Dynamic Hazard Zones
   const [hazards, setHazards] = useState<HazardItem[]>([]);
@@ -169,6 +161,18 @@ export default function LiveJourneyPage() {
   const [isTriggeringSOS, setIsTriggeringSOS] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
+  // End & Complete Journey Modal State
+  const [isEndingJourney, setIsEndingJourney] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [completedSummary, setCompletedSummary] = useState<{
+    origin: string;
+    destination: string;
+    duration: string;
+    distance: string;
+    safetyScore: string;
+    completedAt: string;
+  } | null>(null);
+
   // Simulation controls for testing/demo
   const [isSimulatedOffRoute, setIsSimulatedOffRoute] = useState(false);
 
@@ -177,6 +181,20 @@ export default function LiveJourneyPage() {
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const previousLocationRef = useRef<[number, number] | null>(null);
   const batteryRef = useRef<any>(null);
+
+  // Helper: Clear active journey keys from storage
+  const clearActiveJourneyStorage = useCallback(() => {
+    localStorage.removeItem('active_journey_id');
+    localStorage.removeItem('abhaya_active_journey');
+    localStorage.removeItem('active_journey_destination');
+    localStorage.removeItem('active_journey_origin');
+    localStorage.removeItem('active_journey_route');
+    localStorage.removeItem('active_journey_start_coords');
+    localStorage.removeItem('active_journey_dest_coords');
+    localStorage.removeItem('active_journey_distance');
+    localStorage.removeItem('active_journey_duration');
+    localStorage.removeItem('active_journey_safety_score');
+  }, []);
 
   // 1. Mount & Auth Check
   useEffect(() => {
@@ -214,62 +232,118 @@ export default function LiveJourneyPage() {
     };
   }, [isMounted, router]);
 
-  // 2. Load Journey State from localStorage or fallback to mock
+  // 2. Active Journey Verification & Loading
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    try {
-      const activeId = localStorage.getItem('active_journey_id');
-      const activeDest = localStorage.getItem('active_journey_destination');
-      const activeOrigin = localStorage.getItem('active_journey_origin');
-      const storedRoute = localStorage.getItem('active_journey_route');
-      const storedDist = localStorage.getItem('active_journey_distance');
-      const storedDur = localStorage.getItem('active_journey_duration');
+    const rawJourneyId =
+      localStorage.getItem('active_journey_id') ||
+      localStorage.getItem('abhaya_active_journey');
 
-      if (activeId) {
-        setJourneyId(activeId);
-      } else {
-        // Fallback to mock journey ID if none active
-        const fallbackId = 'mock-journey-' + Math.random().toString(36).substring(2, 9);
-        setJourneyId(fallbackId);
-      }
+    // If no active journey exists in localStorage, do NOT auto-start any mock simulation
+    if (!rawJourneyId) {
+      setHasActiveJourney(false);
+      setIsLoadingJourney(false);
+      return;
+    }
 
-      if (activeDest) setDestinationName(activeDest);
-      if (activeOrigin) setOriginName(activeOrigin);
+    const activeDest = localStorage.getItem('active_journey_destination') || '';
+    const activeOrigin = localStorage.getItem('active_journey_origin') || '';
+    const storedRoute = localStorage.getItem('active_journey_route');
+    const storedDist = localStorage.getItem('active_journey_distance');
+    const storedDur = localStorage.getItem('active_journey_duration');
+    const storedScore = localStorage.getItem('active_journey_safety_score');
 
-      if (storedRoute) {
-        const parsedRoute = JSON.parse(storedRoute);
-        if (Array.isArray(parsedRoute) && parsedRoute.length > 0) {
-          // Normalize coordinate order: if [lng, lat], convert to [lat, lng]
-          const normalized: [number, number][] = parsedRoute.map((pt: any) => {
+    if (activeDest) setDestinationName(activeDest);
+    if (activeOrigin) setOriginName(activeOrigin);
+    if (storedScore && !isNaN(Number(storedScore))) setSafetyScore(Number(storedScore));
+    if (storedDist) {
+      const dMeters = parseFloat(storedDist);
+      setTotalDistanceKm((dMeters / 1000).toFixed(1));
+    }
+    if (storedDur) {
+      const dSec = parseFloat(storedDur);
+      setEstimatedDurationMins(Math.max(1, Math.round(dSec / 60)));
+    }
+
+    let parsedRouteCoords: [number, number][] = [];
+    if (storedRoute) {
+      try {
+        const parsed = JSON.parse(storedRoute);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          parsedRouteCoords = parsed.map((pt: any) => {
             if (Math.abs(pt[0]) > 45 && Math.abs(pt[1]) <= 45) {
               return [pt[1], pt[0]];
             }
             return [pt[0], pt[1]];
           });
-          setRouteCoordinates(normalized);
-          // Default initial location to route starting point
-          setCurrentLocation(normalized[0]);
-          previousLocationRef.current = normalized[0];
+          setRouteCoordinates(parsedRouteCoords);
+          setCurrentLocation(parsedRouteCoords[0]);
+          previousLocationRef.current = parsedRouteCoords[0];
         }
-      } else {
-        // Use fallback route
-        setCurrentLocation(FALLBACK_MOCK_ROUTE[0]);
-        previousLocationRef.current = FALLBACK_MOCK_ROUTE[0];
+      } catch (err) {
+        console.warn('Failed parsing cached route coordinates:', err);
       }
-
-      if (storedDist) {
-        const dMeters = parseFloat(storedDist);
-        setTotalDistanceKm((dMeters / 1000).toFixed(1));
-      }
-      if (storedDur) {
-        const dSec = parseFloat(storedDur);
-        setEstimatedDurationMins(Math.max(1, Math.round(dSec / 60)));
-      }
-    } catch (err) {
-      console.error('Failed to load active journey from storage:', err);
     }
-  }, [isAuthenticated]);
+
+    // Query backend to verify active journey record
+    const loadJourneyDetails = async () => {
+      try {
+        const res = await fetch(`/api/journeys?id=${encodeURIComponent(rawJourneyId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.journey) {
+            // If the journey was already marked completed, clear and display empty state
+            if (data.journey.status === 'COMPLETED') {
+              clearActiveJourneyStorage();
+              setHasActiveJourney(false);
+              setIsLoadingJourney(false);
+              return;
+            }
+
+            if (data.journey.origin_name) setOriginName(data.journey.origin_name);
+            if (data.journey.destination_name) setDestinationName(data.journey.destination_name);
+
+            // If coordinates were missing in local storage, compute via plan endpoint
+            if (parsedRouteCoords.length === 0 && data.journey.start_lat && data.journey.dest_lat) {
+              try {
+                const planRes = await fetch('/api/journeys/plan', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    originLat: data.journey.start_lat,
+                    originLng: data.journey.start_lng,
+                    destLat: data.journey.dest_lat,
+                    destLng: data.journey.dest_lng,
+                  }),
+                });
+                const planData = await planRes.json();
+                if (planData.coordinates && planData.coordinates.length > 0) {
+                  const normalized: [number, number][] = planData.coordinates.map((pt: any) => [pt[1], pt[0]]);
+                  setRouteCoordinates(normalized);
+                  setCurrentLocation(normalized[0]);
+                  previousLocationRef.current = normalized[0];
+                  setTotalDistanceKm((planData.distance / 1000).toFixed(1));
+                  setEstimatedDurationMins(Math.max(1, Math.round(planData.duration / 60)));
+                  if (typeof planData.safetyScore === 'number') setSafetyScore(planData.safetyScore);
+                }
+              } catch (planErr) {
+                console.warn('Plan route fallback fetch failed:', planErr);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Journey verification notice (using local session data):', err);
+      } finally {
+        setJourneyId(rawJourneyId);
+        setHasActiveJourney(true);
+        setIsLoadingJourney(false);
+      }
+    };
+
+    loadJourneyDetails();
+  }, [isAuthenticated, clearActiveJourneyStorage]);
 
   // 3. Fetch Dynamic Hazard Zones from /api/hazards
   const fetchHazards = useCallback(async () => {
@@ -288,10 +362,10 @@ export default function LiveJourneyPage() {
   }, []);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (isAuthenticated && hasActiveJourney) {
       fetchHazards();
     }
-  }, [isAuthenticated, fetchHazards]);
+  }, [isAuthenticated, hasActiveJourney, fetchHazards]);
 
   // 4. Battery Level Monitoring
   useEffect(() => {
@@ -327,9 +401,9 @@ export default function LiveJourneyPage() {
     };
   }, []);
 
-  // 5. Geolocation Watcher (High Accuracy)
+  // 5. Geolocation Watcher (Active ONLY when confirmed journey is loaded)
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !hasActiveJourney || !journeyId) return;
 
     if (typeof navigator === 'undefined' || !('geolocation' in navigator)) {
       console.warn('Geolocation API not supported in browser.');
@@ -342,7 +416,6 @@ export default function LiveJourneyPage() {
       const speed = pos.coords.speed ? Math.round(pos.coords.speed * 3.6) : 0; // km/h
       const accuracy = Math.round(pos.coords.accuracy);
 
-      // If simulated off-route is active for demo, do not overwrite with real coordinate
       if (!isSimulatedOffRoute) {
         const newCoords: [number, number] = [lat, lng];
 
@@ -363,16 +436,17 @@ export default function LiveJourneyPage() {
           setCurrentHeading(heading);
         }
 
-        // Calculate perpendicular distance to route
-        const dist = calculateRouteDeviation(newCoords, routeCoordinates);
-        setDeviationDistance(dist);
+        // Calculate perpendicular distance to active route
+        if (routeCoordinates.length > 0) {
+          const dist = calculateRouteDeviation(newCoords, routeCoordinates);
+          setDeviationDistance(dist);
 
-        // If distance > 75 meters and not already in SOS emergency, set DEVIATED
-        if (status !== 'EMERGENCY') {
-          if (dist > 75) {
-            setStatus('DEVIATED');
-          } else if (status === 'DEVIATED') {
-            setStatus('ACTIVE');
+          if (status !== 'EMERGENCY') {
+            if (dist > 75) {
+              setStatus('DEVIATED');
+            } else if (status === 'DEVIATED') {
+              setStatus('ACTIVE');
+            }
           }
         }
       }
@@ -402,16 +476,18 @@ export default function LiveJourneyPage() {
         watchIdRef.current = null;
       }
     };
-  }, [isAuthenticated, routeCoordinates, status, isSimulatedOffRoute]);
+  }, [isAuthenticated, hasActiveJourney, journeyId, routeCoordinates, status, isSimulatedOffRoute]);
 
-  // 6. Elapsed Journey Timer
+  // 6. Elapsed Journey Timer (Active ONLY when confirmed journey is loaded)
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || !hasActiveJourney || !journeyId) return;
+
     const interval = setInterval(() => {
       setElapsedSeconds((prev) => prev + 1);
     }, 1000);
+
     return () => clearInterval(interval);
-  }, [isAuthenticated]);
+  }, [isAuthenticated, hasActiveJourney, journeyId]);
 
   // Format Elapsed Time (MM:SS)
   const formattedElapsedTime = useMemo(() => {
@@ -421,9 +497,6 @@ export default function LiveJourneyPage() {
   }, [elapsedSeconds]);
 
   // 7. Telemetry & Burst Engine (/api/journeys/ping)
-  // Interval rule:
-  // If battery < 20% or status === 'DEVIATED' or status === 'EMERGENCY': Burst Mode (every 4s with is_burst: true)
-  // Else: Standard Mode (every 15s with is_burst: false)
   const shouldBurst = useMemo(() => {
     return batteryLevel < 20 || status === 'DEVIATED' || status === 'EMERGENCY';
   }, [batteryLevel, status]);
@@ -434,7 +507,7 @@ export default function LiveJourneyPage() {
 
   const sendLocationPing = useCallback(
     async (burstFlag: boolean) => {
-      if (!currentLocation) return;
+      if (!currentLocation || !journeyId) return;
 
       try {
         const payload = {
@@ -445,7 +518,7 @@ export default function LiveJourneyPage() {
           speed: currentSpeed,
           accuracy: gpsAccuracy,
           batteryLevel,
-          is_burst: burstFlag,
+          isBurst: burstFlag,
         };
 
         const res = await fetch('/api/journeys/ping', {
@@ -455,33 +528,23 @@ export default function LiveJourneyPage() {
         });
 
         if (res.ok) {
-          const now = new Date();
-          setLastPingTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
           setPingCount((prev) => prev + 1);
+          setLastPingTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         }
       } catch (err) {
-        console.warn('Ping delivery failed:', err);
+        console.warn('Telemetry ping error:', err);
       }
     },
-    [currentLocation, currentSpeed, gpsAccuracy, batteryLevel, journeyId, currentUser]
+    [currentLocation, journeyId, currentUser, currentSpeed, gpsAccuracy, batteryLevel]
   );
 
-  // Setup Ping Interval based on burst state
   useEffect(() => {
-    if (!isAuthenticated || !currentLocation) return;
+    if (!isAuthenticated || !hasActiveJourney || !journeyId) return;
 
-    // Send immediate ping upon interval transition
-    sendLocationPing(shouldBurst);
-
-    const pingIntervalMs = shouldBurst ? 4000 : 15000;
-
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-    }
-
+    const intervalMs = isBurstMode ? 4000 : 15000;
     pingIntervalRef.current = setInterval(() => {
-      sendLocationPing(shouldBurst);
-    }, pingIntervalMs);
+      sendLocationPing(isBurstMode);
+    }, intervalMs);
 
     return () => {
       if (pingIntervalRef.current) {
@@ -489,11 +552,11 @@ export default function LiveJourneyPage() {
         pingIntervalRef.current = null;
       }
     };
-  }, [isAuthenticated, shouldBurst, currentLocation, sendLocationPing]);
+  }, [isAuthenticated, hasActiveJourney, journeyId, isBurstMode, sendLocationPing]);
 
   // 8. Emergency SOS Trigger
   const handleTriggerEmergencySOS = async () => {
-    if (!currentLocation) return;
+    if (!currentLocation || !journeyId) return;
 
     setIsTriggeringSOS(true);
     setStatus('EMERGENCY');
@@ -518,7 +581,6 @@ export default function LiveJourneyPage() {
         setIncidentId(data.incidentId);
       }
 
-      // Immediately transmit high-frequency burst ping
       sendLocationPing(true);
     } catch (err) {
       console.error('Emergency SOS transmission error:', err);
@@ -532,7 +594,6 @@ export default function LiveJourneyPage() {
     if (status === 'DEVIATED') {
       setStatus('ACTIVE');
       setIsSimulatedOffRoute(false);
-      // Snap location back to nearest route point if simulated
       if (routeCoordinates.length > 0) {
         setCurrentLocation(routeCoordinates[0]);
         setDeviationDistance(0);
@@ -547,41 +608,80 @@ export default function LiveJourneyPage() {
   const handleSimulateDeviation = () => {
     if (!currentLocation) return;
     setIsSimulatedOffRoute(true);
-    // Shift coordinate ~140m off corridor (0.0012 lat offset)
     const deviatedPos: [number, number] = [
       currentLocation[0] + 0.0013,
       currentLocation[1] + 0.0013,
     ];
     setCurrentLocation(deviatedPos);
     previousLocationRef.current = deviatedPos;
-    const dist = calculateRouteDeviation(deviatedPos, routeCoordinates);
-    setDeviationDistance(dist);
+    if (routeCoordinates.length > 0) {
+      const dist = calculateRouteDeviation(deviatedPos, routeCoordinates);
+      setDeviationDistance(dist);
+    }
     setStatus('DEVIATED');
   };
 
   const handleSimulateNormalRoute = () => {
     setIsSimulatedOffRoute(false);
-    if (routeCoordinates.length > 2) {
-      // Place right on 2nd waypoint
-      const pt = routeCoordinates[1];
+    if (routeCoordinates.length > 0) {
+      const pt = routeCoordinates[0];
       setCurrentLocation(pt);
       previousLocationRef.current = pt;
-      const dist = calculateRouteDeviation(pt, routeCoordinates);
-      setDeviationDistance(dist);
+      setDeviationDistance(0);
       setStatus('ACTIVE');
     }
   };
 
-  // End / Complete Journey
-  const handleEndJourney = () => {
-    setStatus('COMPLETED');
-    localStorage.removeItem('active_journey_id');
-    localStorage.removeItem('active_journey_destination');
-    router.push('/map');
+  // 9. End & Complete Journey Flow
+  const handleEndJourney = async () => {
+    if (isEndingJourney) return;
+    setIsEndingJourney(true);
+
+    const summary = {
+      origin: originName || 'Starting Location',
+      destination: destinationName || 'Destination',
+      duration: formattedElapsedTime,
+      distance: totalDistanceKm ? `${totalDistanceKm} km` : '0.0 km',
+      safetyScore: safetyScore !== null ? `${safetyScore}/100` : 'Verified Safe',
+      completedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    try {
+      if (journeyId) {
+        await fetch('/api/journeys', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            journeyId,
+            status: 'COMPLETED',
+          }),
+        });
+      }
+    } catch (err) {
+      console.error('Error completing journey status on backend:', err);
+    } finally {
+      // Clear all active journey keys from storage
+      clearActiveJourneyStorage();
+
+      // Deactivate watchers and intervals
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+      if (pingIntervalRef.current !== null) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
+      }
+
+      setStatus('COMPLETED');
+      setCompletedSummary(summary);
+      setShowCompletionModal(true);
+      setIsEndingJourney(false);
+    }
   };
 
   // Auth Loading Screen
-  if (!isAuthenticated) {
+  if (!isAuthenticated || isLoadingJourney) {
     return (
       <div className="min-h-screen bg-[#0a0104] text-rose-50 flex flex-col items-center justify-center p-4 font-sans antialiased">
         <div className="flex flex-col items-center gap-4 animate-in fade-in duration-300">
@@ -590,18 +690,62 @@ export default function LiveJourneyPage() {
           </div>
           <div className="flex items-center gap-2 text-rose-400 text-xs font-semibold tracking-wider uppercase">
             <ShieldCheck className="w-4 h-4 animate-spin text-rose-500" />
-            Initializing Shield Engine Telemetry...
+            Verifying Active Corridor Telemetry...
           </div>
         </div>
       </div>
     );
   }
 
+  // 10. Clean Empty State Card when no monitored journey is in progress
+  if (!hasActiveJourney) {
+    return (
+      <div className="min-h-screen bg-[#0a0104] text-zinc-100 flex flex-col md:flex-row font-sans antialiased relative selection:bg-rose-900 selection:text-white">
+        <Navbar />
+
+        <main className="flex-1 md:ml-72 p-4 md:p-8 min-h-screen flex items-center justify-center">
+          <div className="w-full max-w-lg bg-[#14040c]/90 border border-rose-950/60 rounded-3xl p-8 md:p-12 shadow-2xl backdrop-blur-xl text-center flex flex-col items-center animate-in fade-in zoom-in-95 duration-300">
+            {/* Status badge: "Corridor Inactive • Standby" */}
+            <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-rose-950/60 border border-rose-900/40 text-xs font-semibold text-rose-300 mb-6 shadow-inner">
+              <span className="w-2 h-2 rounded-full bg-rose-500/80 animate-pulse" />
+              <span>Corridor Inactive • Standby</span>
+            </div>
+
+            {/* Glowing Icon Container */}
+            <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-[#220715] to-[#16040d] border border-rose-900/60 flex items-center justify-center text-rose-400 mb-6 shadow-[0_0_30px_rgba(225,29,72,0.15)]">
+              <Navigation className="w-10 h-10 text-rose-400" />
+            </div>
+
+            {/* Heading: "No Monitored Journey in Progress" */}
+            <h2 className="text-2xl md:text-3xl font-black text-white tracking-tight mb-3">
+              No Monitored Journey in Progress
+            </h2>
+
+            {/* Subtitle */}
+            <p className="text-sm md:text-base text-zinc-400 leading-relaxed mb-8 max-w-md">
+              Set your destination on the map to calculate a lit corridor and activate real-time telemetry.
+            </p>
+
+            {/* Primary Button: "Plan Safe Route" (redirects to /map) */}
+            <button
+              type="button"
+              onClick={() => router.push('/map')}
+              className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-gradient-to-r from-rose-600 via-rose-500 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-sm shadow-xl shadow-rose-950/60 flex items-center justify-center gap-2.5 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Navigation className="w-4 h-4" />
+              <span>Plan Safe Route</span>
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // Active Journey View
   return (
     <div className="min-h-screen bg-[#0a0104] text-zinc-100 flex flex-col md:flex-row font-sans antialiased relative selection:bg-rose-900 selection:text-white">
       {/* 
-        1. Visual Alert Perimeter (Screen Edge Pulsing)
-        Inactive: hidden (unmounted)
+        Visual Alert Perimeter
         DEVIATION: amber perimeter pulse
         SOS / EMERGENCY: rapid crimson strobe
       */}
@@ -652,9 +796,9 @@ export default function LiveJourneyPage() {
                 </span>
               </div>
               <p className="text-xs text-zinc-400 mt-0.5 font-medium flex items-center gap-2">
-                <span>{originName}</span>
+                <span>{originName || 'Current Location'}</span>
                 <span className="text-rose-500">➔</span>
-                <span className="text-rose-200 font-semibold">{destinationName}</span>
+                <span className="text-rose-200 font-semibold">{destinationName || 'Destination'}</span>
               </p>
             </div>
           </div>
@@ -725,77 +869,75 @@ export default function LiveJourneyPage() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-amber-200 text-lg">
-                      Corridor Deviation Warning
-                    </h3>
-                    <span className="text-[11px] font-mono font-bold bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-full border border-amber-500/40">
-                      {deviationDistance}m off corridor
+                    <span className="text-xs uppercase font-extrabold tracking-wider text-amber-400 bg-amber-950/80 border border-amber-700/60 px-2 py-0.5 rounded-md">
+                      Corridor Deviation Detected
+                    </span>
+                    <span className="text-xs font-mono text-amber-300 font-bold">
+                      +{deviationDistance}m Off-Path
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-300 mt-1 leading-relaxed">
+                  <p className="text-sm text-zinc-200 mt-1 font-medium leading-relaxed">
                     You have moved <strong className="text-amber-300">{deviationDistance} meters</strong> beyond your planned safe route. Telemetry has switched into 4-second burst ping mode.
                   </p>
                 </div>
               </div>
 
-              <div className="flex gap-2.5 shrink-0">
+              <div className="flex items-center gap-3 shrink-0">
                 <button
                   onClick={handleAcknowledgeSafe}
-                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-emerald-600/30 flex items-center gap-2"
+                  className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-extrabold text-xs transition-all shadow-lg active:scale-95 flex items-center gap-2"
                 >
-                  <CheckCircle2 className="w-4 h-4" /> I'm Safe / Re-center
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>I Am Safe</span>
                 </button>
                 <button
                   onClick={handleTriggerEmergencySOS}
-                  className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-rose-600/40 flex items-center gap-2"
+                  className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs transition-all shadow-lg active:scale-95 flex items-center gap-2"
                 >
-                  <ShieldAlert className="w-4 h-4" /> Trigger SOS
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>Request Help</span>
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Dynamic Warning Alert: Emergency SOS Active Banner */}
+        {/* Dynamic Warning Alert: SOS Emergency Active Banner */}
         {status === 'EMERGENCY' && (
-          <div className="bg-gradient-to-r from-rose-950 via-[#330514] to-rose-950 border-2 border-rose-500 p-5 rounded-3xl space-y-3 shadow-2xl animate-in slide-in-from-top duration-300">
+          <div className="bg-gradient-to-r from-rose-950 via-[#2f0814] to-rose-950 border-2 border-rose-600 p-5 rounded-3xl space-y-3 shadow-2xl animate-in slide-in-from-top duration-300">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-start gap-3.5">
-                <div className="p-3 bg-rose-600 text-white rounded-2xl shadow-lg shadow-rose-600/50 shrink-0 animate-ping">
+                <div className="p-3 bg-rose-600 text-white rounded-2xl border border-white/20 shrink-0 animate-ping">
                   <ShieldAlert className="w-6 h-6" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h3 className="font-black text-white text-lg tracking-wide">
-                      🚨 EMERGENCY SOS DISPATCHED
-                    </h3>
-                    <span className="text-[11px] font-mono font-bold bg-rose-900/60 text-rose-200 px-2.5 py-0.5 rounded-full border border-rose-700">
-                      Rapid Strobe Active
+                    <span className="text-xs uppercase font-extrabold tracking-wider text-white bg-rose-600 px-2 py-0.5 rounded-md">
+                      Emergency Alert Active
+                    </span>
+                    <span className="text-xs font-mono text-rose-300 font-bold">
+                      ID: {incidentId?.slice(0, 8) || 'BROADCASTING'}
                     </span>
                   </div>
-                  <p className="text-xs text-rose-100 mt-1 leading-relaxed">
-                    Live GPS broadcast transmitted to emergency contacts and community responders. High-frequency telemetry logging every 4 seconds.
+                  <p className="text-sm text-rose-100 mt-1 font-medium leading-relaxed">
+                    Emergency telemetry transmission engaged. Verified emergency contacts and nearby citizens have been notified with live coordinates.
                   </p>
-                  {incidentId && (
-                    <p className="text-[11px] text-rose-300 font-mono mt-1">
-                      Incident Ref: {incidentId}
-                    </p>
-                  )}
                 </div>
               </div>
 
-              <div className="flex gap-2.5 shrink-0">
+              <div className="flex items-center gap-3 shrink-0">
                 <a
                   href="tel:112"
-                  className="px-4 py-2.5 bg-white text-rose-950 hover:bg-rose-50 font-black text-xs rounded-xl transition-all shadow-lg flex items-center gap-2"
+                  className="px-5 py-2.5 rounded-xl bg-white text-rose-900 font-black text-xs transition-all shadow-lg active:scale-95 flex items-center gap-2"
                 >
-                  <PhoneCall className="w-4 h-4 text-rose-600" /> Call 112 (Police)
+                  <PhoneCall className="w-4 h-4" />
+                  <span>Dial 112 (National SOS)</span>
                 </a>
                 <button
                   onClick={handleAcknowledgeSafe}
-                  className="px-4 py-2.5 bg-rose-900/80 hover:bg-rose-800 text-rose-200 font-bold text-xs rounded-xl border border-rose-700/80 transition-all"
+                  className="px-4 py-2.5 rounded-xl bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-bold transition-all active:scale-95"
                 >
-                  Cancel Distress
+                  Cancel SOS
                 </button>
               </div>
             </div>
@@ -812,6 +954,7 @@ export default function LiveJourneyPage() {
                 userHeading={currentHeading}
                 routeCoordinates={routeCoordinates}
                 hazards={hazards}
+                safetyScore={safetyScore}
                 className="w-full h-full"
               />
 
@@ -829,16 +972,15 @@ export default function LiveJourneyPage() {
                         : 'bg-emerald-950/80 text-emerald-300 border-emerald-700/60'
                     }`}
                   >
-                    <Route className="w-3.5 h-3.5" />
-                    <span>Corridor Offset: {deviationDistance}m</span>
+                    <span>Path Offset: {deviationDistance}m</span>
                   </div>
                 )}
               </div>
 
-              {/* Simulation Quick-Bar on Bottom of Map */}
-              <div className="absolute bottom-3 left-3 right-3 z-[400] flex items-center justify-between gap-2 p-2 rounded-2xl bg-[#0e0208]/90 backdrop-blur-md border border-rose-950/70 text-xs">
-                <div className="flex items-center gap-2 pl-2 text-zinc-400">
-                  <Zap className="w-3.5 h-3.5 text-rose-400" />
+              {/* Interactive Simulation Panel for Field Testing */}
+              <div className="absolute bottom-3 left-3 right-3 z-[400] bg-[#14040c]/90 backdrop-blur-md border border-rose-950/80 p-2.5 rounded-2xl shadow-xl flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <Zap className="w-3.5 h-3.5 text-rose-500" />
                   <span className="font-semibold text-rose-300 hidden sm:inline">Telemetry Sandbox:</span>
                 </div>
                 <div className="flex items-center gap-2">
@@ -968,15 +1110,75 @@ export default function LiveJourneyPage() {
 
               <button
                 onClick={handleEndJourney}
-                className="w-full py-3 px-4 bg-[#0a0104] hover:bg-[#1b040e] text-zinc-400 hover:text-zinc-200 text-xs font-semibold rounded-2xl border border-rose-950/70 transition-all flex items-center justify-center gap-2"
+                disabled={isEndingJourney}
+                className="w-full py-3.5 px-4 bg-[#0a0104] hover:bg-[#1b040e] text-zinc-300 hover:text-white text-xs font-bold rounded-2xl border border-rose-950/70 hover:border-rose-800 transition-all flex items-center justify-center gap-2 shadow-lg disabled:opacity-50"
               >
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                End & Complete Journey
+                <span>{isEndingJourney ? 'Ending Journey...' : 'End & Complete Journey'}</span>
               </button>
             </div>
           </div>
         </div>
       </main>
+
+      {/* 11. "Journey Completed Safely" Summary Modal */}
+      {showCompletionModal && completedSummary && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="w-full max-w-md bg-[#14040c] border border-rose-950/80 rounded-3xl p-6 md:p-8 shadow-[0_0_50px_rgba(0,0,0,0.9)] text-center relative overflow-hidden animate-in zoom-in-95 duration-300">
+            {/* Ambient Background Glow */}
+            <div className="absolute -top-20 -right-20 w-44 h-44 rounded-full bg-emerald-500/10 blur-3xl pointer-events-none" />
+            <div className="absolute -bottom-20 -left-20 w-44 h-44 rounded-full bg-rose-500/10 blur-3xl pointer-events-none" />
+
+            {/* Glowing Emerald Check Icon */}
+            <div className="relative mx-auto mb-5 w-20 h-20 rounded-3xl bg-emerald-950/60 border border-emerald-500/50 flex items-center justify-center text-emerald-400 shadow-[0_0_30px_rgba(16,185,129,0.25)]">
+              <span className="absolute w-16 h-16 rounded-full bg-emerald-500/20 animate-ping" />
+              <CheckCircle2 className="w-10 h-10 relative z-10" />
+            </div>
+
+            <div className="inline-block px-3 py-1 rounded-full bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-bold tracking-wider uppercase mb-3">
+              Safely Arrived
+            </div>
+
+            <h3 className="text-2xl font-black text-white tracking-tight mb-2">
+              Journey Completed Safely
+            </h3>
+
+            <p className="text-xs text-zinc-400 leading-relaxed mb-6">
+              Your monitored corridor has successfully concluded. Live GPS telemetry and guardian beacons have been securely deactivated.
+            </p>
+
+            {/* Summary Metrics Grid */}
+            <div className="grid grid-cols-2 gap-2.5 p-4 rounded-2xl bg-[#0a0104] border border-rose-950/60 text-left mb-6 font-mono text-xs">
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block">Destination</span>
+                <span className="font-bold text-white truncate block">{completedSummary.destination}</span>
+              </div>
+              <div>
+                <span className="text-[10px] text-zinc-500 uppercase block">Total Duration</span>
+                <span className="font-bold text-emerald-300 block">{completedSummary.duration}</span>
+              </div>
+              <div className="pt-2 border-t border-rose-950/40">
+                <span className="text-[10px] text-zinc-500 uppercase block">Distance Traveled</span>
+                <span className="font-bold text-white block">{completedSummary.distance}</span>
+              </div>
+              <div className="pt-2 border-t border-rose-950/40">
+                <span className="text-[10px] text-zinc-500 uppercase block">Safety Index</span>
+                <span className="font-bold text-rose-300 block">{completedSummary.safetyScore}</span>
+              </div>
+            </div>
+
+            {/* Primary Dismiss Button */}
+            <button
+              type="button"
+              onClick={() => router.push('/')}
+              className="w-full py-3.5 px-6 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs shadow-xl shadow-emerald-950/60 flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <span>Return to Safety Dashboard</span>
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

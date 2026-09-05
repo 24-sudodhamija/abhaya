@@ -183,10 +183,36 @@ export default function ReportsExplorerPage() {
     }
   };
 
-  // 6. Map Click -> Set selectedCoords and open modal
+  // Verification Warning State
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+
+  // 6. Validates is_verified === true before opening report submission modal
+  const handleOpenFileReport = (coords?: { lat: number; lng: number } | null) => {
+    try {
+      const stored = localStorage.getItem('abhaya_user');
+      if (!stored) {
+        router.push('/login');
+        return;
+      }
+      const user = JSON.parse(stored);
+      if (!user || user.is_verified !== true) {
+        setVerificationError(
+          'Identity Verification Required: Only verified residents with active ledger credentials can submit hazard reports.'
+        );
+        return;
+      }
+
+      setVerificationError(null);
+      setModalCoords(coords || (userLocation ? { lat: userLocation[0], lng: userLocation[1] } : null));
+      setIsCreateModalOpen(true);
+    } catch {
+      router.push('/login');
+    }
+  };
+
+  // Map Click -> Set selectedCoords and open modal for verified user
   const handleMapClick = (coords: { lat: number; lng: number }) => {
-    setModalCoords(coords);
-    setIsCreateModalOpen(true);
+    handleOpenFileReport(coords);
   };
 
   // 7. Endorse Hazard (+1 verification_count)
@@ -239,6 +265,23 @@ export default function ReportsExplorerPage() {
       <Navbar />
 
       <main className="flex-1 md:ml-72 p-3 md:p-6 pb-28 md:pb-8 max-w-7xl mx-auto space-y-5">
+        {/* Verification Warning Toast Banner */}
+        {verificationError && (
+          <div className="bg-gradient-to-r from-rose-950 via-[#2a0613] to-rose-950 border border-rose-600/80 text-rose-100 p-4 rounded-2xl shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top duration-300">
+            <div className="flex items-center gap-2.5 text-xs font-semibold">
+              <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+              <span>{verificationError}</span>
+            </div>
+            <button
+              onClick={() => setVerificationError(null)}
+              className="p-1 text-rose-400 hover:text-white shrink-0"
+              title="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Top Header */}
         <header className="flex flex-wrap justify-between items-center gap-4 bg-[#14040c]/90 border border-rose-950/60 p-4 md:p-5 rounded-3xl backdrop-blur-xl shadow-xl">
           <div className="flex items-center gap-3.5">
@@ -395,13 +438,47 @@ export default function ReportsExplorerPage() {
                   <RefreshCw className="w-5 h-5 animate-spin text-rose-500" />
                   <span>Loading crowdsourced reports...</span>
                 </div>
+              ) : reports.length === 0 ? (
+                /* Zero-State Handling when database query returns 0 hazard reports */
+                <div className="py-12 px-6 text-center border border-dashed border-rose-950/80 rounded-3xl bg-[#0e0208]/60 flex flex-col items-center justify-center space-y-4 animate-in fade-in duration-300">
+                  <div className="w-14 h-14 rounded-2xl bg-emerald-950/50 border border-emerald-500/40 flex items-center justify-center text-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.15)]">
+                    <ShieldCheck className="w-7 h-7 text-emerald-400" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="text-sm md:text-base font-bold text-white tracking-tight">
+                      No verified reports in this vicinity.
+                    </h3>
+                    <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
+                      Local safety index is optimal. All community corridors clear.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleOpenFileReport()}
+                    className="mt-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-bold text-xs shadow-lg shadow-rose-950/60 transition-all flex items-center gap-2 active:scale-95"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Report New Infrastructure Issue or Hazard</span>
+                  </button>
+                </div>
               ) : filteredReports.length === 0 ? (
-                <div className="py-12 text-center text-zinc-500 text-xs border border-dashed border-rose-950/80 rounded-2xl p-6">
-                  <AlertTriangle className="w-8 h-8 text-rose-500/40 mx-auto mb-2" />
-                  <p className="font-semibold text-zinc-300">No reports matching this filter</p>
-                  <p className="text-[11px] text-zinc-500 mt-1">
+                /* When reports exist in DB but active filter yields 0 matches */
+                <div className="py-10 px-6 text-center border border-dashed border-rose-950/80 rounded-2xl bg-[#0e0208]/40 space-y-3">
+                  <AlertTriangle className="w-8 h-8 text-rose-500/40 mx-auto" />
+                  <p className="font-semibold text-zinc-300 text-xs">No reports matching this filter</p>
+                  <p className="text-[11px] text-zinc-500 max-w-xs mx-auto">
                     Try choosing 'All' or click anywhere on the map to pin a new observation.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveFilter('All');
+                      setSearchQuery('');
+                    }}
+                    className="px-3.5 py-1 rounded-xl bg-rose-950/60 text-rose-300 border border-rose-900/60 text-xs font-semibold hover:bg-rose-900/80 transition-colors"
+                  >
+                    Reset Filter
+                  </button>
                 </div>
               ) : (
                 filteredReports.map((report) => {
@@ -508,16 +585,13 @@ export default function ReportsExplorerPage() {
         </div>
       </main>
 
-      {/* 2. Floating Action Button: File Incident / Hazard Report */}
+      {/* 2. Floating Action Button: File Hazard Report */}
       <button
-        onClick={() => {
-          setModalCoords(userLocation ? { lat: userLocation[0], lng: userLocation[1] } : null);
-          setIsCreateModalOpen(true);
-        }}
+        onClick={() => handleOpenFileReport()}
         className="fixed bottom-6 right-6 z-40 bg-gradient-to-r from-rose-600 via-rose-500 to-pink-600 hover:from-rose-500 hover:to-pink-500 text-white font-black text-xs md:text-sm uppercase tracking-wider px-5 py-4 rounded-full shadow-2xl shadow-rose-950/90 border border-rose-400/40 flex items-center gap-2.5 transition-all transform active:scale-95 hover:shadow-rose-600/30"
       >
         <Plus className="w-5 h-5 stroke-[2.5]" />
-        <span>File Incident / Hazard Report</span>
+        <span>File Hazard Report</span>
       </button>
 
       {/* Create Report Modal */}
