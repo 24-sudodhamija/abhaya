@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Abhaya — Autonomous Transit Telemetry & Women's Safety Engine
 
-## Getting Started
+> **Live Web Application:** [https://abhaya-lemon-two.vercel.app](https://abhaya-lemon-two.vercel.app)
 
-First, run the development server:
+Abhaya is an identity-verified, real-time pedestrian telemetry platform built for female commuters. It combines continuous geofenced telemetry tracking, crowd-verified spatial hazard radar, and instant cryptographic SOS dispatching.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## ⚡ Hackathon Evaluation Quickstart
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+* **Live Deployment:** [https://abhaya-lemon-two.vercel.app](https://abhaya-lemon-two.vercel.app)
+* **Demo OTP:** `123456`
+* **Device Permissions:** Please allow browser Location (GPS) access when prompted to experience live safe-corridor tracking.
+* **Identity Verification Gate:** The platform uses simulated e-KYC demographic verification; ensure a female full name is entered during onboarding.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+---
 
-## Learn More
+## ✨ Core Features
 
-To learn more about Next.js, take a look at the following resources:
+* **Real-Time Safe Corridor Telemetry:** Live GPS coordinate polling, speed tracking, battery-level monitoring, and dead-reckoning corridor deviation alerts.
+* **Spatial Hazard Radar:** Dark-mode vector mapping showing community-reported street infrastructure defects, poor lighting, and high-risk zones.
+* **Verified Crowdsourced Reports:** Eliminates spam through mandatory identity verification; anonymous incident reporting is prohibited.
+* **One-Tap SOS Dispatch:** Instant emergency escalation that captures location burst pings and triggers responder notifications.
+* **P2P Community & Safe Spaces:** Encrypted volunteer support rooms and real-time community coordination.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 🛠 Tech Stack
 
-## Deploy on Vercel
+* **Framework:** Next.js (App Router, Turbopack)
+* **Language:** TypeScript
+* **Database:** Neon Serverless PostgreSQL (`@neondatabase/serverless`)
+* **Mapping:** Leaflet.js with optimized OpenStreetMap tile rendering
+* **Styling:** Tailwind CSS with custom dark wine visual hierarchy
+* **Deployment:** Vercel (Edge network, automated CI/CD)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 🚀 Local Development
+
+1. **Clone the repository:**
+   ```bash
+   git clone [https://github.com/24-sudodhamija/abhaya.git](https://github.com/24-sudodhamija/abhaya.git)
+   cd abhaya
